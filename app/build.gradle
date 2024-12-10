@@ -42,6 +42,7 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+    //dynamicFeatures = [':assets']
 }
 
 dependencies {
@@ -49,7 +50,6 @@ dependencies {
     implementation project(':kotlin')
     implementation project(':java')
     implementation project(':native')
-    implementation project(':assets')
 
     // Libraries which can be re-used in other modules should use the `api` keyword.
     // This way they can be shared with dependent feature modules.
@@ -59,4 +59,5 @@ dependencies {
     implementation "androidx.constraintlayout:constraintlayout:2.1.2"
     implementation "com.google.android.material:material:1.4.0"
 
+    implementation("com.google.android.play:core:${versions.playcore}")
 }

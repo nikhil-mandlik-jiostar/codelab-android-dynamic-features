@@ -23,6 +23,11 @@ import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.play.core.splitinstall.SplitInstallManager
+import com.google.android.play.core.splitinstall.SplitInstallManagerFactory
+import com.google.android.play.core.splitinstall.SplitInstallRequest
+import com.google.android.play.core.splitinstall.SplitInstallStateUpdatedListener
+import com.google.android.play.core.splitinstall.model.SplitInstallSessionStatus
 
 private const val packageName = "com.google.android.samples.dynamicfeatures.ondemand"
 private const val kotlinSampleClassname = "$packageName.KotlinSampleActivity"
@@ -43,27 +48,76 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private lateinit var manager : SplitInstallManager
+    private val moduleKotlin by lazy { getString(R.string.module_feature_kotlin) }
+    private val moduleJava by lazy { getString(R.string.module_feature_java) }
+    private val moduleNative by lazy { getString(R.string.module_native) }
+    private val moduleAssets by lazy { getString(R.string.module_assets) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        manager = SplitInstallManagerFactory.create(this)
         initializeViews()
+    }
+
+    private val listener = SplitInstallStateUpdatedListener { state ->
+        val multiInstall = state.moduleNames().size > 1
+        val names = state.moduleNames().joinToString(" - ")
+        when (state.status()) {
+            SplitInstallSessionStatus.DOWNLOADING -> {
+                //  In order to see this, the application has to be uploaded to the Play Store.
+                toastAndLog("$state, Downloading $names")
+            }
+            SplitInstallSessionStatus.REQUIRES_USER_CONFIRMATION -> {
+                /*
+                  This may occur when attempting to download a sufficiently large module.
+
+                  In order to see this, the application has to be uploaded to the Play Store.
+                  Then features can be requested until the confirmation path is triggered.
+                 */
+                startIntentSender(state.resolutionIntent()?.intentSender, null, 0, 0, 0)
+            }
+            SplitInstallSessionStatus.INSTALLED -> {
+                toastAndLog("$names, launch = ${!multiInstall}")
+            }
+
+            SplitInstallSessionStatus.INSTALLING -> {
+                toastAndLog("$state, Installing $names")
+            }
+            SplitInstallSessionStatus.FAILED -> {
+                toastAndLog("Error: ${state.errorCode()} for module ${state.moduleNames()}")
+            }
+        }
     }
 
     /** Display assets loaded from the assets feature module. */
     private fun displayAssets() {
-        // Get the asset manager with a refreshed context, to access content of newly installed apk.
-        val assetManager = createPackageContext(packageName, 0).assets
-        // Now treat it like any other asset file.
-        val assets = assetManager.open("assets.txt")
-        val assetContent = assets.bufferedReader()
+        toastAndLog("installedModules = ${manager.installedModules.joinToString { it }}")
+        if (manager.installedModules.contains(moduleAssets)) {
+            // Get the asset manager with a refreshed context, to access content of newly installed apk.
+            val assetManager = createPackageContext(packageName, 0).assets
+            // Now treat it like any other asset file.
+            val assets = assetManager.open("assets.txt")
+            val assetContent = assets.bufferedReader()
                 .use {
                     it.readText()
                 }
 
-        AlertDialog.Builder(this)
+            AlertDialog.Builder(this)
                 .setTitle("Asset content")
                 .setMessage(assetContent)
                 .show()
+        } else {
+            toastAndLog("The assets module is not installed")
+            val request = SplitInstallRequest.newBuilder()
+                .addModule(moduleAssets)
+                .build()
+            manager.startInstall(request)
+                .addOnCompleteListener {toastAndLog("Module ${moduleAssets} installed") }
+                .addOnSuccessListener {toastAndLog("Loading ${moduleAssets}") }
+                .addOnFailureListener { toastAndLog("Error Loading ${moduleAssets}") }
+        }
     }
 
     /** Launch an activity by its class name. */
@@ -90,6 +144,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun setClickListener(id: Int, listener: View.OnClickListener) {
         findViewById<View>(id).setOnClickListener(listener)
+    }
+
+    override fun onResume() {
+        // Listener can be registered even without directly triggering a download.
+        manager.registerListener(listener)
+        super.onResume()
+    }
+
+    override fun onPause() {
+        // Make sure to dispose of the listener once it's no longer needed.
+        manager.unregisterListener(listener)
+        super.onPause()
     }
 }
 
